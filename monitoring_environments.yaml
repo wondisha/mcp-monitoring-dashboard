@@ -1,0 +1,274 @@
+# Multi-Environment Monitoring Configuration
+# Supports: SQL Server, Snowflake, PostgreSQL
+
+environments:
+  dev:
+    name: "Development"
+    enabled: true
+    databases:
+      # SQL Server - Local Development
+      - type: "sqlserver"
+        name: "DEV-SQL-Local"
+        server: "localhost"
+        database: "DevDB"
+        auth: "windows"  # or "sql" for SQL authentication
+        # username: "dev_user"  # Required for SQL auth
+        # password: "${SQL_DEV_PASSWORD}"  # Environment variable
+        
+      # SQL Server - Named Instance
+      - type: "sqlserver"
+        name: "DEV-SQL2025"
+        server: "TECHPC\\SQL2025"
+        database: "db01"
+        auth: "windows"
+        
+      # Snowflake Development
+      - type: "snowflake"
+        name: "DEV-Snowflake"
+        account: "EEJRNQB-JM98615"  # Your account identifier
+        user: "dev_user"
+        password: "${SNOWFLAKE_DEV_PASSWORD}"
+        warehouse: "COMPUTE_WH"
+        database: "DEV_DB"
+        schema: "PUBLIC"
+        role: "SYSADMIN"
+        
+      # PostgreSQL Development
+      - type: "postgresql"
+        name: "DEV-PostgreSQL"
+        host: "localhost"
+        port: 5432
+        database: "devdb"
+        user: "postgres"
+        password: "${POSTGRES_DEV_PASSWORD}"
+        sslmode: "prefer"  # Options: disable, allow, prefer, require, verify-ca, verify-full
+
+  qa:
+    name: "Quality Assurance"
+    enabled: true
+    databases:
+      # SQL Server QA - Primary
+      - type: "sqlserver"
+        name: "QA-SQL-Primary"
+        server: "QA-SQL01"
+        database: "QADB"
+        auth: "windows"
+        connection_timeout: 10
+        
+      # SQL Server QA - Secondary (for AG/Mirroring)
+      - type: "sqlserver"
+        name: "QA-SQL-Secondary"
+        server: "QA-SQL02"
+        database: "QADB"
+        auth: "sql"
+        username: "qa_monitor"
+        password: "${SQL_QA_PASSWORD}"
+        application_intent: "ReadOnly"  # For AlwaysOn readable secondary
+        
+      # Snowflake QA
+      - type: "snowflake"
+        name: "QA-Snowflake"
+        account: "EEJRNQB-JM98615"
+        user: "qa_user"
+        password: "${SNOWFLAKE_QA_PASSWORD}"
+        warehouse: "QA_WH"
+        database: "QA_DB"
+        role: "QA_ROLE"
+        
+      # PostgreSQL QA - Primary
+      - type: "postgresql"
+        name: "QA-PostgreSQL-Primary"
+        host: "qa-postgres-01.company.local"
+        port: 5432
+        database: "qadb"
+        user: "qa_monitor"
+        password: "${POSTGRES_QA_PASSWORD}"
+        sslmode: "require"
+        
+      # PostgreSQL QA - Standby (streaming replication)
+      - type: "postgresql"
+        name: "QA-PostgreSQL-Standby"
+        host: "qa-postgres-02.company.local"
+        port: 5432
+        database: "qadb"
+        user: "qa_monitor"
+        password: "${POSTGRES_QA_PASSWORD}"
+        sslmode: "require"
+        read_only: true  # Marks this as a replica to check replication lag
+
+  prod:
+    name: "Production"
+    enabled: true
+    databases:
+      # SQL Server Production - Instance 1
+      - type: "sqlserver"
+        name: "PROD-SQL01"
+        server: "PROD-SQL01.company.local"
+        database: "ProdDB"
+        auth: "windows"
+        connection_timeout: 15
+        
+      # SQL Server Production - Instance 2
+      - type: "sqlserver"
+        name: "PROD-SQL02"
+        server: "PROD-SQL02.company.local"
+        database: "ProdDB"
+        auth: "windows"
+        
+      # SQL Server Production - AlwaysOn AG Listener
+      - type: "sqlserver"
+        name: "PROD-SQL-AG"
+        server: "PROD-AG-LISTENER.company.local"
+        database: "ProdDB"
+        auth: "sql"
+        username: "prod_monitor"
+        password: "${SQL_PROD_PASSWORD}"
+        application_intent: "ReadOnly"
+        
+      # SQL Server Production - Log Shipping Secondary
+      - type: "sqlserver"
+        name: "PROD-SQL-DR"
+        server: "DR-SQL01.company.local"
+        database: "ProdDB"
+        auth: "sql"
+        username: "prod_monitor"
+        password: "${SQL_PROD_PASSWORD}"
+        # Database will be in RESTORING state for log shipping
+        
+      # Snowflake Production
+      - type: "snowflake"
+        name: "PROD-Snowflake"
+        account: "EEJRNQB-JM98615"
+        user: "prod_monitor"
+        password: "${SNOWFLAKE_PROD_PASSWORD}"
+        warehouse: "PROD_WH"
+        database: "PROD_DB"
+        schema: "PUBLIC"
+        role: "MONITORING_ROLE"
+        
+      # PostgreSQL Production - Primary
+      - type: "postgresql"
+        name: "PROD-PostgreSQL-Primary"
+        host: "prod-postgres-01.company.local"
+        port: 5432
+        database: "proddb"
+        user: "monitoring_user"
+        password: "${POSTGRES_PROD_PASSWORD}"
+        sslmode: "verify-full"  # Strict SSL verification for production
+        
+      # PostgreSQL Production - Read Replica 1
+      - type: "postgresql"
+        name: "PROD-PostgreSQL-Replica-01"
+        host: "prod-postgres-replica-01.company.local"
+        port: 5432
+        database: "proddb"
+        user: "monitoring_user"
+        password: "${POSTGRES_PROD_PASSWORD}"
+        sslmode: "verify-full"
+        read_only: true
+        
+      # PostgreSQL Production - Read Replica 2
+      - type: "postgresql"
+        name: "PROD-PostgreSQL-Replica-02"
+        host: "prod-postgres-replica-02.company.local"
+        port: 5432
+        database: "proddb"
+        user: "monitoring_user"
+        password: "${POSTGRES_PROD_PASSWORD}"
+        sslmode: "verify-full"
+        read_only: true
+        
+      # PostgreSQL Production - DR Site
+      - type: "postgresql"
+        name: "PROD-PostgreSQL-DR"
+        host: "dr-postgres-01.company.local"
+        port: 5432
+        database: "proddb"
+        user: "monitoring_user"
+        password: "${POSTGRES_PROD_PASSWORD}"
+        sslmode: "verify-full"
+        read_only: true
+
+# Dashboard Settings
+dashboard:
+  refresh_interval: 300  # seconds (5 minutes)
+  output_file: "D:/Resume/monitoring_dashboard.html"
+  open_browser: true
+  timezone: "UTC"
+  
+# Alert Thresholds
+thresholds:
+  sqlserver:
+    # Performance thresholds
+    page_life_expectancy_min: 300  # seconds
+    buffer_cache_hit_ratio_min: 90  # percentage
+    
+    # Session thresholds
+    blocked_sessions_max: 5
+    
+    # Query performance
+    cpu_ms_warning: 1000  # milliseconds
+    cpu_ms_critical: 10000  # milliseconds
+    
+    # Index health
+    index_fragmentation_warning: 10  # percentage
+    index_fragmentation_critical: 30  # percentage
+    
+  snowflake:
+    # Query spill thresholds
+    local_spill_gb_warning: 1.0  # GB
+    remote_spill_gb_critical: 0.1  # GB (remote spill is expensive!)
+    
+    # Credit usage
+    credit_daily_max: 100  # credits per day
+    credit_hourly_max: 10  # credits per hour
+    
+    # Queue time
+    queue_time_warning_sec: 60  # seconds
+    queue_time_critical_sec: 300  # seconds
+    
+  postgresql:
+    # Connection thresholds
+    connections_warning_pct: 80  # % of max_connections
+    connections_critical_pct: 95  # % of max_connections
+    
+    # Cache performance
+    cache_hit_ratio_min: 90  # percentage
+    
+    # Table bloat
+    bloat_warning_pct: 20  # percentage
+    bloat_critical_pct: 40  # percentage
+    
+    # Replication lag (for replicas)
+    replication_lag_warning_sec: 60  # seconds
+    replication_lag_critical_sec: 300  # seconds (5 minutes)
+    
+    # Long running queries
+    long_query_warning_sec: 300  # 5 minutes
+    long_query_critical_sec: 1800  # 30 minutes
+
+# Logging Configuration
+logging:
+  enabled: true
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "monitoring_logs/dashboard_{date}.log"
+  retention_days: 30
+  
+# Optional: Email Alerts (requires SMTP configuration)
+# alerts:
+#   enabled: false
+#   smtp_server: "smtp.company.com"
+#   smtp_port: 587
+#   smtp_user: "monitoring@company.com"
+#   smtp_password: "${SMTP_PASSWORD}"
+#   from_email: "monitoring@company.com"
+#   to_emails:
+#     - "dba-team@company.com"
+#     - "ops-team@company.com"
+
+# Optional: Metrics Export (for integration with external systems)
+# export:
+#   enabled: false
+#   format: "json"  # Options: json, csv, prometheus
+#   output_dir: "metrics_export"
+#   retention_days: 7

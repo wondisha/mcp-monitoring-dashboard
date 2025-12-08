@@ -1,0 +1,25 @@
+# Multi-Environment Database Monitoring Dashboard
+# Python Package Requirements
+
+# Database Connectors
+pyodbc>=5.3.0                          # SQL Server ODBC driver
+snowflake-connector-python>=3.17.0    # Snowflake connector
+psycopg2-binary>=2.9.9                # PostgreSQL adapter
+
+# Configuration & Data Handling
+pyyaml>=6.0.1                          # YAML configuration parser
+python-dotenv>=1.0.0                   # Environment variable management
+
+# Optional: Enhanced Features
+# cryptography>=41.0.7                 # Password encryption (optional)
+# jinja2>=3.1.2                        # HTML templating (optional)
+# pandas>=2.0.0                        # Data analysis (optional)
+# matplotlib>=3.7.0                    # Charting (optional)
+
+# Installation:
+# pip install -r requirements_monitoring.txt
+#
+# Or install specific database support only:
+# pip install pyodbc pyyaml                      # SQL Server only
+# pip install snowflake-connector-python pyyaml  # Snowflake only
+# pip install psycopg2-binary pyyaml             # PostgreSQL only
