@@ -168,7 +168,7 @@ def collect_snowflake_metrics():
         )
         cursor = conn.cursor()
         
-        # Warehouse Utilization (Last Hour)
+        # Warehouse Utilization (Last 12 Hours)
         cursor.execute("""
             SELECT 
                 warehouse_name,
@@ -176,7 +176,7 @@ def collect_snowflake_metrics():
                 AVG(execution_time) / 1000 as avg_execution_sec,
                 AVG(queued_overload_time) / 1000 as avg_queue_sec
             FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-            WHERE start_time >= DATEADD(HOUR, -1, CURRENT_TIMESTAMP())
+            WHERE start_time >= DATEADD(HOUR, -12, CURRENT_TIMESTAMP())
             AND warehouse_name IS NOT NULL
             GROUP BY warehouse_name
             ORDER BY query_count DESC
@@ -231,7 +231,7 @@ def collect_snowflake_metrics():
         """)
         metrics['queries']['active'] = cursor.fetchone()[0]
         
-        # Query Spill Metrics (Last Hour)
+        # Query Spill Metrics (Last 12 Hours)
         cursor.execute("""
             SELECT 
                 COUNT(*) as queries_with_spill,
@@ -240,7 +240,7 @@ def collect_snowflake_metrics():
                 AVG(BYTES_SCANNED) / (1024*1024*1024) as avg_scan_gb,
                 AVG(PARTITIONS_SCANNED) as avg_partitions
             FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-            WHERE start_time >= DATEADD(HOUR, -1, CURRENT_TIMESTAMP())
+            WHERE start_time >= DATEADD(HOUR, -12, CURRENT_TIMESTAMP())
             AND (BYTES_SPILLED_TO_LOCAL_STORAGE > 0 OR BYTES_SPILLED_TO_REMOTE_STORAGE > 0)
         """)
         row = cursor.fetchone()
@@ -260,6 +260,49 @@ def collect_snowflake_metrics():
                 'avg_scan_gb': 0,
                 'avg_partitions': 0
             }
+        
+        # Get detailed spill queries
+        metrics['spill_details'] = []
+        cursor.execute("""
+            SELECT 
+                query_id,
+                LEFT(query_text, 100) as query_snippet,
+                warehouse_name,
+                database_name,
+                start_time,
+                ROUND(total_elapsed_time/1000, 2) as execution_sec,
+                ROUND(bytes_scanned/1024/1024, 2) as mb_scanned,
+                ROUND(bytes_spilled_to_local_storage/1024/1024, 2) as local_spill_mb,
+                ROUND(bytes_spilled_to_remote_storage/1024/1024, 2) as remote_spill_mb,
+                execution_status,
+                CASE 
+                    WHEN bytes_spilled_to_remote_storage > 0 THEN 'CRITICAL'
+                    WHEN bytes_spilled_to_local_storage > 100*1024*1024 THEN 'HIGH'
+                    WHEN bytes_spilled_to_local_storage > 10*1024*1024 THEN 'MODERATE'
+                    WHEN bytes_spilled_to_local_storage > 0 THEN 'LOW'
+                    ELSE 'NONE'
+                END AS severity
+            FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
+            WHERE start_time >= DATEADD(HOUR, -12, CURRENT_TIMESTAMP())
+            AND query_type = 'SELECT'
+            AND (BYTES_SPILLED_TO_LOCAL_STORAGE > 0 OR BYTES_SPILLED_TO_REMOTE_STORAGE > 0)
+            ORDER BY bytes_spilled_to_local_storage DESC, bytes_spilled_to_remote_storage DESC
+            LIMIT 20
+        """)
+        for row in cursor.fetchall():
+            metrics['spill_details'].append({
+                'query_id': row[0],
+                'query_snippet': row[1],
+                'warehouse': row[2],
+                'database': row[3],
+                'start_time': row[4].strftime('%Y-%m-%d %H:%M:%S') if row[4] else '',
+                'execution_sec': row[5],
+                'mb_scanned': row[6],
+                'local_spill_mb': row[7],
+                'remote_spill_mb': row[8],
+                'status': row[9],
+                'severity': row[10]
+            })
         
         cursor.close()
         conn.close()
@@ -436,6 +479,99 @@ def generate_html_dashboard(sql_metrics, sf_metrics):
             color: #6b7280;
             font-size: 14px;
         }}
+        tr:hover {{
+            background: #f9fafb;
+        }}
+        .clickable {{
+            cursor: pointer;
+            transition: all 0.2s;
+        }}
+        .clickable:hover {{
+            background: #eff6ff !important;
+            transform: scale(1.01);
+        }}
+        .spill-metric {{
+            cursor: pointer;
+            transition: all 0.2s;
+        }}
+        .spill-metric:hover {{
+            background: #f3f4f6;
+            border-radius: 5px;
+        }}
+        .modal {{
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }}
+        .modal-content {{
+            background: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 1200px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }}
+        .modal-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+        }}
+        .modal-header h2 {{
+            margin: 0;
+            color: #333;
+        }}
+        .close {{
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #999;
+        }}
+        .close:hover {{
+            color: #333;
+        }}
+        .severity-badge {{
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+        }}
+        .severity-CRITICAL {{
+            background: #fee2e2;
+            color: #991b1b;
+        }}
+        .severity-HIGH {{
+            background: #fed7aa;
+            color: #9a3412;
+        }}
+        .severity-MODERATE {{
+            background: #fef3c7;
+            color: #92400e;
+        }}
+        .severity-LOW {{
+            background: #dbeafe;
+            color: #1e3a8a;
+        }}
+        .query-code {{
+            background: #f9fafb;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }}
         .refresh-info {{
             text-align: center;
             color: white;
@@ -553,7 +689,7 @@ def generate_html_dashboard(sql_metrics, sf_metrics):
             
             <!-- Warehouse Activity Chart -->
             <div class="card">
-                <h2>Snowflake Warehouse Activity (Last Hour)</h2>
+                <h2>Snowflake Warehouse Activity (Last 12 Hours)</h2>
                 <div class="chart-container">
                     <canvas id="warehouseChart"></canvas>
                 </div>
@@ -589,9 +725,9 @@ def generate_html_dashboard(sql_metrics, sf_metrics):
             
             <!-- Snowflake Query Spill -->
             <div class="card">
-                <h2>Snowflake Query Spill (Last Hour)</h2>
-                <div class="metric">
-                    <span class="metric-label">Queries with Spill</span>
+                <h2>Snowflake Query Spill (Last 12 Hours)</h2>
+                <div class="metric spill-metric" onclick="showSpillDetails()">
+                    <span class="metric-label">Queries with Spill 👁️</span>
                     <span class="metric-value {'warning' if sf_metrics['spill'].get('queries_with_spill', 0) > 0 else 'success'}">{sf_metrics['spill'].get('queries_with_spill', 0)}</span>
                 </div>
                 <div class="metric">
@@ -752,7 +888,37 @@ def generate_html_dashboard(sql_metrics, sf_metrics):
             const secs = seconds % 60;
             document.getElementById('countdown').textContent = `${{mins}}:${{secs.toString().padStart(2, '0')}}`;
         }}, 1000);
+        
+        // Spill Details Modal
+        function showSpillDetails() {{
+            document.getElementById('spillModal').style.display = 'block';
+        }}
+        
+        function closeSpillModal() {{
+            document.getElementById('spillModal').style.display = 'none';
+        }}
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {{
+            const modal = document.getElementById('spillModal');
+            if (event.target == modal) {{
+                modal.style.display = 'none';
+            }}
+        }}
     </script>
+    
+    <!-- Spill Details Modal -->
+    <div id="spillModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Query Spillage Details (Last 12 Hours)</h2>
+                <span class="close" onclick="closeSpillModal()">&times;</span>
+            </div>
+            <div class="table-container">
+                {'<table><thead><tr><th>Time</th><th>Warehouse</th><th>Database</th><th>Query Snippet</th><th>Execution (s)</th><th>MB Scanned</th><th>Local Spill (MB)</th><th>Remote Spill (MB)</th><th>Severity</th><th>Status</th></tr></thead><tbody>' + ''.join([f'<tr class="clickable"><td>{q["start_time"]}</td><td>{q["warehouse"]}</td><td>{q["database"]}</td><td><div class="query-code">{q["query_snippet"]}</div></td><td>{q["execution_sec"]}</td><td>{q["mb_scanned"]}</td><td><span class="metric-value {"warning" if q["local_spill_mb"] > 100 else ""}">{q["local_spill_mb"]}</span></td><td><span class="metric-value {"danger" if q["remote_spill_mb"] > 0 else ""}">{q["remote_spill_mb"]}</span></td><td><span class="severity-badge severity-{q["severity"]}">{q["severity"]}</span></td><td>{q["status"]}</td></tr>' for q in sf_metrics["spill_details"]]) + '</tbody></table>' if sf_metrics.get("spill_details") else '<p style="text-align: center; color: #10b981; padding: 40px;">✓ No queries with spillage found in the last 12 hours</p>'}
+            </div>
+        </div>
+    </div>
 </body>
 </html>"""
     
